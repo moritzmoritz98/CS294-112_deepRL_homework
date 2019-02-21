@@ -1,4 +1,5 @@
 import gym
+import gym.spaces as spaces
 from gym.envs.registration import EnvSpec
 import imageio
 import matplotlib.pyplot as plt
@@ -26,10 +27,10 @@ class PointMass(Env):
         # define scale such that the each square in the grid is 1 x 1
         self.scale = int(scale)
         self.grid_size = self.scale * self.scale
-        self.observation_space = gym.spaces.Box(
+        self.observation_space = spaces.Box(
             low=np.array([0.0, 0.0]),
             high=np.array([1.0, 1.0]))
-        self.action_space = gym.spaces.Box(
+        self.action_space = spaces.Box(
             low=np.array([-np.inf, -np.inf]),
             high=np.array([np.inf, np.inf]))
         self.goal_padding = goal_padding

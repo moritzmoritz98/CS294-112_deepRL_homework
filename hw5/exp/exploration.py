@@ -40,9 +40,8 @@ class Exploration(object):
                 bonus and then modify the rewards with the bonus
                 and store that in new_rewards, which you will return
         """
-        raise NotImplementedError
-        bonus = None
-        new_rewards = None
+        bonus = self.compute_reward_bonus(states)
+        new_rewards = rewards + bonus
         return new_rewards
 
 class DiscreteExploration(Exploration):
@@ -57,7 +56,10 @@ class DiscreteExploration(Exploration):
             args:
                 states: (bsize, ob_dim)
         """
-        raise NotImplementedError
+        
+        np.apply_along_axis(self.density_model.update_count,
+                            axis=1,
+                            arr=states, increment=1)
 
     def bonus_function(self, count):
         """
@@ -67,7 +69,7 @@ class DiscreteExploration(Exploration):
             args:
                 count: np array (bsize)
         """
-        raise NotImplementedError
+        return 1 / np.sqrt(count + 1e-8)
 
     def compute_reward_bonus(self, states):
         """
@@ -77,8 +79,8 @@ class DiscreteExploration(Exploration):
             args:
                 states: (bsize, ob_dim)
         """
-        count = raise NotImplementedError
-        bonus = raise NotImplementedError
+        count = self.density_model.get_count(states)
+        bonus = self.bonus_coeff * self.bonus_function(count)
         return bonus
 
 
@@ -99,7 +101,7 @@ class ContinuousExploration(Exploration):
             args:
                 prob: np array (bsize,)
         """
-        raise NotImplementedError
+        return - np.log(prob)
 
     def compute_reward_bonus(self, states):
         """
@@ -109,9 +111,8 @@ class ContinuousExploration(Exploration):
             args:
                 states: (bsize, ob_dim)
         """
-        raise NotImplementedError
-        prob = None
-        bonus = None
+        prob = self.density_model.get_prob(states)
+        bonus = self.bonus_coeff * self.bonus_function(prob)
         return bonus
 
 

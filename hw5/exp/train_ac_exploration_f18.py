@@ -12,7 +12,7 @@ import logz
 import os
 import time
 import inspect
-from multiprocessing import Process
+from multiprocessing import Pool
 
 from exploration import ExemplarExploration, DiscreteExploration, RBFExploration
 from density_model import Exemplar, Histogram, RBF
@@ -361,6 +361,8 @@ class Agent(object):
         self.sess.run(self.actor_update_op,
             feed_dict={self.sy_ob_no: ob_no, self.sy_ac_na: ac_na, self.sy_adv_n: adv_n})
 
+def train_AC_(train_kwargs):
+    train_AC(**train_kwargs)
 
 def train_AC(
         exp_name,
@@ -528,7 +530,7 @@ def train_AC(
                     the call to exploration.fit_density_model should return nothing
             2. Modify the re_n with the reward bonus by calling exploration.modify_reward
         """
-        old_re_n = re_n
+        old_re_n = re_n[:]
         if dm == 'none':
             pass
         else:
@@ -536,26 +538,26 @@ def train_AC(
             if dm == 'ex2':
                 ### PROBLEM 3
                 ### YOUR CODE HERE
-                raise NotImplementedError
+                ll, kl, elbo = exploration.fit_density_model(ob_no)
             elif dm == 'hist' or dm == 'rbf':
                 ### PROBLEM 1
                 ### YOUR CODE HERE
-                raise NotImplementedError
+                exploration.fit_density_model(ob_no)
             else:
                 assert False
 
             # 2. Modify the reward
             ### PROBLEM 1
             ### YOUR CODE HERE
-            raise NotImplementedError
+            re_n = exploration.modify_reward(re_n, ob_no)
 
             print('average state', np.mean(ob_no, axis=0))
             print('average action', np.mean(ac_na, axis=0))
 
             # Logging stuff.
             # Only works for point mass.
-            if env_name == 'PointMass-v0':
-                np.save(os.path.join(dirname, '{}'.format(itr)), ob_no)
+        if env_name == 'PointMass-v0':
+            np.save(os.path.join(dirname, '{}'.format(itr)), ob_no)
         ########################################################################
         agent.update_critic(ob_no, next_ob_no, re_n, terminal_n)
         adv_n = agent.estimate_advantage(ob_no, next_ob_no, re_n, terminal_n)
@@ -578,9 +580,9 @@ def train_AC(
         logz.log_tabular("EpLenStd", np.std(ep_lengths))
         ########################################################################
         logz.log_tabular("Unmodified Rewards Mean", np.mean(old_re_n))
-        logz.log_tabular("Unmodified Rewards Std", np.mean(old_re_n))
+        logz.log_tabular("Unmodified Rewards Std", np.std(old_re_n))
         logz.log_tabular("Modified Rewards Mean", np.mean(re_n))
-        logz.log_tabular("Modified Rewards Std", np.mean(re_n))
+        logz.log_tabular("Modified Rewards Std", np.std(re_n))
         if dm == 'ex2':
             logz.log_tabular("Log Likelihood Mean", np.mean(ll))
             logz.log_tabular("Log Likelihood Std", np.std(ll))
@@ -636,14 +638,14 @@ def main():
 
     max_path_length = args.ep_len if args.ep_len > 0 else None
 
-    processes = []
+    kwargs_list = []
 
     for e in range(args.n_experiments):
         seed = args.seed + 10*e
         print('Running experiment with seed %d'%seed)
 
-        def train_func():
-            train_AC(
+        kwargs_list.append(
+            dict(
                 exp_name=args.exp_name,
                 env_name=args.env_name,
                 n_iter=args.n_iter,
@@ -670,19 +672,15 @@ def main():
                 replay_size=args.replay_size,
                 sigma=args.sigma
                 ########################################################################
-                )
+            )
+        )
 
-        # # Awkward hacky process runs, because Tensorflow does not like
-        # # repeatedly calling train_AC in the same thread.
-        p = Process(target=train_func, args=tuple())
-        p.start()
-        processes.append(p)
-        # if you comment in the line below, then the loop will block 
-        # until this process finishes
-        # p.join()
-
-    for p in processes:
-        p.join()
+    if args.n_experiments > 1:
+        assert args.n_experiments == len(kwargs_list)
+        Pool(processes=args.n_experiments).map(train_AC_, kwargs_list)
+    else:
+        #map(train_AC_, kwargs_list)
+        train_AC(**kwargs_list[0])
         
 
 if __name__ == "__main__":
