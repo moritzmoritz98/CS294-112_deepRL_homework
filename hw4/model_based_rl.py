@@ -22,7 +22,8 @@ class ModelBasedRL(object):
                  render=False,
                  mpc_horizon=15,
                  num_random_action_selection=4096,
-                 nn_layers=1):
+                 nn_layers=1,
+                 cem=True):
         self._env = env
         self._max_rollout_length = max_rollout_length
         self._num_onpolicy_iters = num_onplicy_iters
@@ -39,7 +40,8 @@ class ModelBasedRL(object):
         self._policy = ModelBasedPolicy(env,
                                         self._random_dataset,
                                         horizon=mpc_horizon,
-                                        num_random_action_selection=num_random_action_selection)
+                                        num_random_action_selection=num_random_action_selection,
+                                        cem=cem)
 
         timeit.reset()
         timeit.start('total')
@@ -85,7 +87,11 @@ class ModelBasedRL(object):
         losses = []
         ### PROBLEM 1
         ### YOUR CODE HERE
-        raise NotImplementedError
+        for epoch in range(self._training_epochs):
+            for data_batch in dataset.random_iterator(self._training_batch_size):
+                state, action, next_state, _, _ = data_batch
+                loss = self._policy.train_step(state, action, next_state)
+                losses.append(loss)
 
         logger.record_tabular('TrainingLossStart', losses[0])
         logger.record_tabular('TrainingLossFinal', losses[-1])
@@ -117,7 +123,7 @@ class ModelBasedRL(object):
         logger.info('Training policy....')
         ### PROBLEM 1
         ### YOUR CODE HERE
-        raise NotImplementedError
+        self._train_policy(self._random_dataset)
 
         logger.info('Evaluating predictions...')
         for r_num, (states, actions, _, _, _) in enumerate(self._random_dataset.rollout_iterator()):
@@ -125,7 +131,10 @@ class ModelBasedRL(object):
 
             ### PROBLEM 1
             ### YOUR CODE HERE
-            raise NotImplementedError
+            current_state = states[0]
+            for a in actions:
+                current_state = self._policy.predict(current_state, a)
+                pred_states.append(current_state)
 
             states = np.asarray(states)
             pred_states = np.asarray(pred_states)
@@ -155,12 +164,12 @@ class ModelBasedRL(object):
         logger.info('Training policy....')
         ### PROBLEM 2
         ### YOUR CODE HERE
-        raise NotImplementedError
+        self._train_policy(self._random_dataset)
 
         logger.info('Evaluating policy...')
         ### PROBLEM 2
         ### YOUR CODE HERE
-        raise NotImplementedError
+        eval_dataset = self._gather_rollouts(self._policy, 1)
 
         logger.info('Trained policy')
         self._log(eval_dataset)
@@ -184,16 +193,16 @@ class ModelBasedRL(object):
             ### PROBLEM 3
             ### YOUR CODE HERE
             logger.info('Training policy...')
-            raise NotImplementedError
+            self._train_policy(dataset)
 
             ### PROBLEM 3
             ### YOUR CODE HERE
             logger.info('Gathering rollouts...')
-            raise NotImplementedError
+            new_dataset = self._gather_rollouts(self._policy, self._num_onpolicy_rollouts)
 
             ### PROBLEM 3
             ### YOUR CODE HERE
             logger.info('Appending dataset...')
-            raise NotImplementedError
+            dataset.append(new_dataset)
 
             self._log(new_dataset)

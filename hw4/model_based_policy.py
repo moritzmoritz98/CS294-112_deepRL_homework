@@ -11,7 +11,8 @@ class ModelBasedPolicy(object):
                  init_dataset,
                  horizon=15,
                  num_random_action_selection=4096,
-                 nn_layers=1):
+                 nn_layers=1,
+                 cem=True):
         self._cost_fn = env.cost_fn
         self._state_dim = env.observation_space.shape[0]
         self._action_dim = env.action_space.shape[0]
@@ -22,6 +23,10 @@ class ModelBasedPolicy(object):
         self._num_random_action_selection = num_random_action_selection
         self._nn_layers = nn_layers
         self._learning_rate = 1e-3
+        self._cem = cem
+        self._cem_maxits = 5
+        self._cem_epsilon = 1e-5
+        self._cem_elites = int(num_random_action_selection * 0.05)
 
         self._sess, self._state_ph, self._action_ph, self._next_state_ph,\
             self._next_state_pred, self._loss, self._optimizer, self._best_action = self._setup_graph()
@@ -41,7 +46,9 @@ class ModelBasedPolicy(object):
         """
         ### PROBLEM 1
         ### YOUR CODE HERE
-        raise NotImplementedError
+        state_ph =      tf.placeholder(tf.float32, [None, self._state_dim], 'state_ph')
+        action_ph =     tf.placeholder(tf.float32, [None, self._action_dim], 'action_ph')
+        next_state_ph = tf.placeholder(tf.float32, [None, self._state_dim], 'next_state_ph')
 
         return state_ph, action_ph, next_state_ph
 
@@ -65,8 +72,24 @@ class ModelBasedPolicy(object):
         """
         ### PROBLEM 1
         ### YOUR CODE HERE
-        raise NotImplementedError
-
+        state_n =  utils.normalize(state, 
+                                   self._init_dataset.state_mean, 
+                                   self._init_dataset.state_std)
+        action_n = utils.normalize(action,
+                                   self._init_dataset.action_mean,
+                                   self._init_dataset.action_std)
+        stact = tf.concat([state_n, action_n], axis=1)
+        
+        states_diff_n = utils.build_mlp(input_layer=stact,
+                                        output_dim=self._state_dim,
+                                        scope='dynamics',
+                                        n_layers=self._nn_layers,
+                                        reuse=reuse)
+        states_diff = utils.unnormalize(states_diff_n,
+                                        self._init_dataset.delta_state_mean,
+                                        self._init_dataset.delta_state_std)
+        next_state_pred = state + states_diff
+        
         return next_state_pred
 
     def _setup_training(self, state_ph, next_state_ph, next_state_pred):
@@ -89,7 +112,13 @@ class ModelBasedPolicy(object):
         """
         ### PROBLEM 1
         ### YOUR CODE HERE
-        raise NotImplementedError
+        state_diff        = next_state_ph - state_ph
+        pred_state_diff   = next_state_pred - state_ph
+        state_diff_n      = utils.normalize(state_diff,      self._init_dataset.state_mean, self._init_dataset.state_std)
+        pred_state_diff_n = utils.normalize(pred_state_diff, self._init_dataset.state_mean, self._init_dataset.state_std)
+        
+        loss = tf.losses.mean_squared_error(state_diff_n, pred_state_diff_n)
+        optimizer = tf.train.AdamOptimizer(self._learning_rate).minimize(loss)
 
         return loss, optimizer
 
@@ -122,7 +151,35 @@ class ModelBasedPolicy(object):
         """
         ### PROBLEM 2
         ### YOUR CODE HERE
-        raise NotImplementedError
+        ### horizon = 15; num_random_action_selection = 4096; action_dim = 6; state_dim = 17
+        t = 1 # iter for cem
+        action_seq = tf.random_uniform((self._horizon, self._num_random_action_selection, self._action_dim),
+                                       minval=self._action_space_low,  # -1
+                                       maxval=self._action_space_high, #  1
+                                       dtype=tf.float32) #(15, 4096, 6)
+        while True:
+            state_seq = tf.tile(state_ph, [self._num_random_action_selection, 1]) #(4096, 17)
+            costs = tf.zeros(self._num_random_action_selection) #(4096,)
+            for action_step in tf.unstack(action_seq): #15 times, (4096, 6)
+                next_state_seq = self._dynamics_func(state_seq, action_step, True) #(4096, 17)
+                costs += self._cost_fn(state_seq, action_step, next_state_seq)
+                state_seq = next_state_seq
+    
+            _, min_action_seq_idx = tf.math.top_k(-costs, self._cem_elites) #(204,) elites: val + idx
+            
+            if not self._cem or t > self._cem_maxits:
+                best_action = action_seq[0, min_action_seq_idx[0]] #(6,)
+                break
+            else:
+                mu, var = tf.nn.moments(tf.gather(action_seq, min_action_seq_idx, axis=1), axes=1)
+                t += 1
+                action_seq = tf.random_normal((self._num_random_action_selection, self._horizon, self._action_dim),
+                                              mean=mu,
+                                              stddev=tf.sqrt(var))
+                action_seq = tf.transpose(action_seq, [1,0,2]) #(15, 4096, 6)
+                action_seq = tf.clip_by_value(action_seq,
+                                              clip_value_min=self._action_space_low,
+                                              clip_value_max=self._action_space_high)
 
         return best_action
 
@@ -136,10 +193,12 @@ class ModelBasedPolicy(object):
 
         ### PROBLEM 1
         ### YOUR CODE HERE
-        raise NotImplementedError
+        state_ph, action_ph, next_state_ph = self._setup_placeholders()
+        next_state_pred = self._dynamics_func(state_ph, action_ph, reuse=False)
+        loss, optimizer = self._setup_training(state_ph, next_state_ph, next_state_pred)
         ### PROBLEM 2
         ### YOUR CODE HERE
-        best_action = None
+        best_action = self._setup_action_selection(state_ph)
 
         sess.run(tf.global_variables_initializer())
 
@@ -155,7 +214,10 @@ class ModelBasedPolicy(object):
         """
         ### PROBLEM 1
         ### YOUR CODE HERE
-        raise NotImplementedError
+        _, loss = self._sess.run([self._optimizer, self._loss],
+                                 feed_dict = { self._state_ph: states,
+                                               self._action_ph: actions,
+                                               self._next_state_ph: next_states })
 
         return loss
 
@@ -166,7 +228,7 @@ class ModelBasedPolicy(object):
         returns:
             next_state_pred: predicted next state
 
-        implementation detils:
+        implementation details:
             (i) The state and action arguments are 1-dimensional vectors (NO batch dimension)
         """
         assert np.shape(state) == (self._state_dim,)
@@ -174,7 +236,9 @@ class ModelBasedPolicy(object):
 
         ### PROBLEM 1
         ### YOUR CODE HERE
-        raise NotImplementedError
+        next_state_pred = self._sess.run(self._next_state_pred,
+                                         feed_dict = { self._state_ph: state[None],
+                                                       self._action_ph: action[None] })[0]
 
         assert np.shape(next_state_pred) == (self._state_dim,)
         return next_state_pred
@@ -190,7 +254,8 @@ class ModelBasedPolicy(object):
 
         ### PROBLEM 2
         ### YOUR CODE HERE
-        raise NotImplementedError
+        best_action = self._sess.run(self._best_action,
+                                     feed_dict={ self._state_ph: state[None] })
 
         assert np.shape(best_action) == (self._action_dim,)
         return best_action

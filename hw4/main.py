@@ -14,6 +14,7 @@ parser.add_argument('--render', action='store_true')
 parser.add_argument('--mpc_horizon', type=int, default=15)
 parser.add_argument('--num_random_action_selection', type=int, default=4096)
 parser.add_argument('--nn_layers', type=int, default=1)
+parser.add_argument('--dcem', action='store_true')
 args = parser.parse_args()
 
 data_dir = os.path.join(os.path.dirname(os.path.realpath(__file__)), 'data')
@@ -34,7 +35,8 @@ mbrl = ModelBasedRL(env=env,
                     render=args.render,
                     mpc_horizon=args.mpc_horizon,
                     num_random_action_selection=args.num_random_action_selection,
-                    nn_layers=args.nn_layers)
+                    nn_layers=args.nn_layers,
+                    cem=not(args.dcem))
 
 run_func = {
     'q1': mbrl.run_q1,
