@@ -72,6 +72,9 @@ python train_ac_exploration_f18.py PointMass-v0 -n 100 -b 1000 -e 3 --density_mo
 ```
 ![EX2 exploration](assets/ex2.gif)
 
+### HalfCheetah environment (Roboschool)
+Out of curiosity, the different exploration techniques are applied to non-spare environments like Roboschool's HalfCheetah. Here it clearly manifests itself that advanced exploration like EX2 has rarely an effect on the overall performance however, its average reward is more volatile explained by its tendency to explore its environment well. That said, in HalfCheetah the solution is really straightforward so that any kind of exploration doesn't make much sense.
+![HalfCheetah exploration](assets/HalfCheetah.png)
 
 ## Dependencies
  * Python **3.5**
