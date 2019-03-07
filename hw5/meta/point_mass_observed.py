@@ -12,18 +12,24 @@ class ObservedPointEnv(Env):
      - change the dimension of the observation space
      - augment the observation with a one-hot vector that encodes the task ID
     """
-    #====================================================================================#
-    #                           ----------PROBLEM 1----------
-    #====================================================================================#
+    # ======================================================================== #
+    #                       ----------PROBLEM 1----------
+    # ======================================================================== #
     # YOUR CODE SOMEWHERE HERE
-    def __init__(self, num_tasks=1):
+    def __init__(self, num_tasks=1, checkerboard_size=None):
         self.tasks = [0, 1, 2, 3][:num_tasks]
         self.task_idx = -1
         self.reset_task()
         self.reset()
 
-        self.observation_space = spaces.Box(low=-np.inf, high=np.inf, shape=(2,))
-        self.action_space = spaces.Box(low=-0.1, high=0.1, shape=(2,))
+        self.observation_space = spaces.Box(low=-np.inf,
+                                            high=np.inf,
+                                            shape=(2 + num_tasks,),
+                                            dtype=np.float32)
+        self.action_space = spaces.Box(low=-0.1,
+                                       high=0.1,
+                                       shape=(2,),
+                                       dtype=np.float32)
 
     def reset_task(self, is_evaluation=False):
         # for evaluation, cycle deterministically through all tasks
@@ -41,7 +47,7 @@ class ObservedPointEnv(Env):
         return self._get_obs()
 
     def _get_obs(self):
-        return np.copy(self._state)
+        return np.hstack([self._state, np.eye(len(self.tasks))[self.task_idx]])
 
     def step(self, action):
         x, y = self._state
@@ -60,8 +66,11 @@ class ObservedPointEnv(Env):
         print('no viewer')
         pass
 
-    def render(self):
+    def render(self, mode='ansi'):
+        assert mode == 'ansi', 'Error: Human and rgb_array rendering is not supported yet.'
         print('current state:', self._state)
 
-    def seed(self, seed):
+    def seed(self, seed=None):
+        assert seed is not None, 'Error: A seed has to be provided.'
         np.random.seed = seed
+        return [seed]

@@ -8,4 +8,4 @@ Specifically, this course covers implementation offerings of the following algor
 5. **Advanced topics**
     1. [**Exploration**](hw5/exp/) with histogram, RBF-Kernel, EX2
     2. **Soft Actor-Critic** with Maximum-Entropy method
-    3. [**Meta-Learning**](hw5/meta/) with feed-forward and GRUs
+    3. [**Meta-Learning**](hw5/meta/) with feed-forward / GRU based contextual policies

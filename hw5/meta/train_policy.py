@@ -16,7 +16,7 @@ import scipy.signal
 import os
 import time
 import inspect
-from multiprocessing import Process
+from multiprocessing import Pool
 
 from replay_buffer import ReplayBuffer, PPOReplayBuffer
 
@@ -75,6 +75,11 @@ def build_rnn(x, h, output_size, scope, n_layers, size, activation=tf.tanh, outp
     #                           ----------PROBLEM 2----------
     #====================================================================================#
     # YOUR CODE HERE
+    mlp = build_mlp(x, output_size, scope, n_layers, size, activation=activation, output_activation=output_activation, regularizer=regularizer)
+    gru = tf.keras.layers.GRUCell(output_size, activation=activation)
+    x, hidden = tf.nn.dynamic_rnn(gru, mlp, initial_state=h, scope=scope)
+    x = x[:,-1,:]
+    return x, hidden
 
 def build_policy(x, h, output_size, scope, n_layers, size, gru_size, recurrent=True, activation=tf.tanh, output_activation=None):
     """
@@ -377,27 +382,28 @@ class Agent(object):
                 # first meta ob has only the observation
                 # set a, r, d to zero, construct first meta observation in meta_obs
                 # YOUR CODE HERE
-
+                meta_obs[steps + self.history] = np.hstack([ob, np.zeros(self.ac_dim), np.zeros(self.reward_dim), np.zeros(self.terminal_dim)])
                 steps += 1
 
             # index into the meta_obs array to get the window that ends with the current timestep
             # please name the windowed observation `in_` for compatibilty with the code that adds to the replay buffer (lines 418, 420)
             # YOUR CODE HERE
-
+            in_ = meta_obs[None, steps : steps + self.history]
             hidden = np.zeros((1, self.gru_size), dtype=np.float32)
 
             # get action from the policy
             # YOUR CODE HERE
-
+            ac = self.sess.run(self.sy_sampled_ac, feed_dict={self.sy_ob_no: in_,
+                                                              self.sy_hidden: hidden})[0]
             # step the environment
             # YOUR CODE HERE
-
+            ob, rew, done, _ = env.step(ac)
             ep_steps += 1
 
             done = bool(done) or ep_steps == self.max_path_length
             # construct the meta-observation and add it to meta_obs
             # YOUR CODE HERE
-
+            meta_obs[steps + self.history] = np.hstack([ob, ac, rew, done])
             rewards.append(rew)
             steps += 1
 
@@ -466,7 +472,7 @@ class Agent(object):
             prev_value = values[i]
             prev_advantage = advantages[i]
 
-        advantages = (advantages - np.mean(advantages, axis=0)) / np.std(advantages, axis=0)
+        advantages = (advantages - np.mean(advantages, axis=0)) / (np.std(advantages, axis=0) + 1e-8)
         return advantages, returns
 
 
@@ -576,6 +582,9 @@ class Agent(object):
         return policy_surr_loss
 
 
+def _train_PG(kwargs):
+    train_PG(**kwargs)
+
 def train_PG(
         exp_name,
         env_name,
@@ -599,6 +608,7 @@ def train_PG(
         num_tasks,
         l2reg,
         recurrent,
+        checkerboard_size
         ):
 
     start = time.time()
@@ -616,7 +626,7 @@ def train_PG(
     envs = {'pm': PointEnv,
             'pm-obs': ObservedPointEnv,
             }
-    env = envs[env_name](num_tasks)
+    env = envs[env_name](num_tasks, checkerboard_size=checkerboard_size)
 
     # Set random seeds
     tf.set_random_seed(seed)
@@ -788,6 +798,7 @@ def main():
     parser.add_argument('--history', '-ho', type=int, default=1)
     parser.add_argument('--l2reg', '-reg', action='store_true')
     parser.add_argument('--recurrent', '-rec', action='store_true')
+    parser.add_argument('--checkerboard_size', type=float, default=0.)
     args = parser.parse_args()
 
     if not(os.path.exists('data')):
@@ -799,14 +810,13 @@ def main():
 
     max_path_length = args.ep_len if args.ep_len > 0 else None
 
-    processes = []
-
+    kwargs = []
     for e in range(args.n_experiments):
         seed = args.seed + 10*e
         print('Running experiment with seed %d'%seed)
 
-        def train_func():
-            train_PG(
+        kwargs.append(
+            dict(
                 exp_name=args.exp_name,
                 env_name=args.env_name,
                 n_iter=args.n_iter,
@@ -829,19 +839,15 @@ def main():
                 num_tasks=args.num_tasks,
                 l2reg=args.l2reg,
                 recurrent=args.recurrent,
-                )
-        # # Awkward hacky process runs, because Tensorflow does not like
-        # # repeatedly calling train_PG in the same thread.
-        p = Process(target=train_func, args=tuple())
-        p.start()
-        processes.append(p)
-        # if you comment in the line below, then the loop will block
-        # until this process finishes
-        # p.join()
+                checkerboard_size=args.checkerboard_size
+            )
+        )
 
-    for p in processes:
-        p.join()
-
+    if args.n_experiments > 1:
+        assert args.n_experiments == len(kwargs)
+        Pool(processes=args.n_experiments).map(_train_PG, kwargs)
+    else:
+        train_PG(**kwargs[0])
 
 if __name__ == "__main__":
     main()
